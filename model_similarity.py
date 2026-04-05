@@ -1,6 +1,4 @@
 import copy
-from functools import reduce
-
 import torch
 import lightning.pytorch as pl
 from lightning.pytorch.callbacks import ModelCheckpoint
@@ -87,6 +85,13 @@ class InputTypes:
     embedding = 1
     concepts_ground_truth = 2
 
+class SimilarityTypes:
+    """
+        Possible similarity metrics
+    """
+    cosine = 0
+    dotproduct = 1
+    euclidean = 2
 
 class SaveBestModelCallback(pl.Callback):
     def __init__(self):
@@ -263,6 +268,8 @@ class MNISTModel(pl.LightningModule):
     def __init__(self, encoder, emb_size, rule_emb_size, n_tasks, n_rules, n_concepts, concept_names, rule_module,
                  lr=0.001,
                  selector_input=InputTypes.concepts,
+                 selector_similarity=SimilarityTypes.cosine,
+                 temperature=1.0,
                  rel_concept_counts=None, weight_concepts=False,
                  w_c=1, w_y=1, w_yF=1,
                  c_pred_in_logic=False,
@@ -283,6 +290,8 @@ class MNISTModel(pl.LightningModule):
             rule_module: RuleModule instance
             lr: Learning rate
             selector_input: Type of selector input
+            selector_similarity: Decide similarity metric used in selector
+            temperature: Add temperature to computation of logits in selector
             rel_concept_counts: Relative concept counts
             weight_concepts: Whether to weigh the concept reconstruction loss based on relative concept counts
             w_c: Weight for the concept reconstruction loss (w.r.t. the task loss)
@@ -305,6 +314,8 @@ class MNISTModel(pl.LightningModule):
         self.n_rules = n_rules
         self.effective_n_rules = n_rules
         self.selector_input = selector_input
+        self.selector_similarity=selector_similarity
+        self.temperature=temperature
         self.rel_concept_counts = rel_concept_counts
         self.weight_concepts = weight_concepts
         self.rule_logger = None
@@ -358,6 +369,8 @@ class MNISTModel(pl.LightningModule):
             selector_input_size = self.embedding_size
         else:
             raise NotImplementedError
+        
+
         self.selector_input_size = selector_input_size
         self.selector_input = selector_input
 
@@ -379,26 +392,38 @@ class MNISTModel(pl.LightningModule):
 
     def compute_rule_logits(self, selector_input):
         """
-        input_emb:    (batch, embedding_size)
+        input_emb:    (batch, selector_input_size)
         returns logits: (batch, n_tasks, effective_n_rules)
         """
-        r = self.rule_module.rules.weight                       # (n_tasks * n_rules, rule_emb_size)
-        #r = r.view(self.n_tasks, self.effective_n_rules, self.rule_emb_size) # (n_tasks, n_rules, emb)                            
-
-        x = self.input_emb_proj(selector_input)
-
-        #temperature = 0.1  # <1 makes it sharper, >1 makes it flatter
-        #logits = torch.nn.functional.cosine_similarity(x, r, dim=-1) / temperature # (batch, n_tasks, n_rules)
-        #logits = torch.sum(x * r, dim=-1) # Dot Product
-        #logits = -torch.linalg.norm(x - r, dim=-1)  # Euclidean Distance: negative because smaller distance = better match
-
-        # Cosine Simmilarity
-        x = torch.nn.functional.normalize(x, p=2, dim=-1)
-        r = torch.nn.functional.normalize(r, p=2, dim=-1)
+        # Project input to the rule embedding space
+        x = self.input_emb_proj(selector_input) # (batch, rule_emb_size)
+        
+        # Get and reshape rules
+        r = self.rule_module.rules.weight # (n_tasks * n_rules, rule_emb_size)
         r = r.view(self.n_tasks, self.effective_n_rules, self.rule_emb_size)
-        logits = torch.einsum('be,tne->btn', x, r)
+        
+        if self.selector_similarity == SimilarityTypes.cosine:
+            # Normalize both for Cosine Sim
+            x_norm = torch.nn.functional.normalize(x, p=2, dim=-1)
+            r_norm = torch.nn.functional.normalize(r, p=2, dim=-1)
+            # (batch, rule_emb_size) @ (n_tasks, n_rules, rule_emb_size)
+            logits = torch.einsum('be,tne->btn', x_norm, r_norm)
+            
+        elif self.selector_similarity == SimilarityTypes.dotproduct:
+            # Standard Dot Product
+            logits = torch.einsum('be,tne->btn', x, r)
+            
+        elif self.selector_similarity == SimilarityTypes.euclidean:
+            # Euclidean: -||x - r||^2
+            # x is (B, E), r is (T, N, E). We use broadcasting to get (B, T, N)
+            # (B, 1, 1, E) - (1, T, N, E) -> (B, T, N, E)
+            diff = x.unsqueeze(1).unsqueeze(2) - r.unsqueeze(0)
+            logits = -torch.linalg.norm(diff, dim=-1)
 
-        return logits / 0.1 # temperature
+        else:
+            raise ValueError(f"Unknown similarity type: {self.selector_similarity}")
+
+        return logits / self.temperature
 
     def decode_rules(self, rule_embs):
         decoded_rules = self.rule_module.decode_rules(rule_embs)  # tasks, rules, concepts, 3
@@ -766,11 +791,36 @@ class CMR(MNISTModel):
                  concept_names,
                  learning_rate=0.001,
                  selector_input=InputTypes.embedding,
+                 selector_similarity=SimilarityTypes.cosine,
+                 temperature=0.1,
                  reset_selector=True, reset_selector_every_n_epochs=30,
                  rel_concept_counts=None, weight_concepts=False,
                  w_c=1, w_y=1, w_yF=1,
                  c_pred_in_logic=True, c_pred_in_rec=False,
                  orig_rule_sym_to_name=None):
-        super().__init__(encoder, emb_size, rule_emb_size, n_tasks, n_rules, n_concepts, concept_names, ProbRDCat,
-                         learning_rate, selector_input, rel_concept_counts, weight_concepts, w_c, 10*w_y, w_yF, c_pred_in_logic, c_pred_in_rec,
-                         orig_rule_sym_to_name, reset_selector, reset_selector_every_n_epochs, False, False)
+        super().__init__(
+            encoder=encoder, 
+            emb_size=emb_size, 
+            rule_emb_size=rule_emb_size, 
+            n_tasks=n_tasks, 
+            n_rules=n_rules, 
+            n_concepts=n_concepts, 
+            concept_names=concept_names, 
+            rule_module=ProbRDCat,
+            lr=learning_rate, 
+            selector_input=selector_input, 
+            selector_similarity=selector_similarity,
+            temperature=temperature,
+            rel_concept_counts=rel_concept_counts, 
+            weight_concepts=weight_concepts, 
+            w_c=w_c, 
+            w_y=10*w_y, 
+            w_yF=w_yF, 
+            c_pred_in_logic=c_pred_in_logic, 
+            c_pred_in_rec=c_pred_in_rec,
+            orig_rule_sym_to_name=orig_rule_sym_to_name, 
+            reset_selector=reset_selector, 
+            reset_selector_every_n_epochs=reset_selector_every_n_epochs, 
+            intervene=False, 
+            mutex=False
+        )

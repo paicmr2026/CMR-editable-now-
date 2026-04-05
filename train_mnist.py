@@ -5,9 +5,9 @@ from torch.utils.data import TensorDataset, DataLoader
 import lightning.pytorch as pl
 from lightning.pytorch.callbacks import ModelCheckpoint
 
-from model_simmilarity import (
+from model_similarity import (
     MNISTModel, MNISTEncoder, ProbRDCat,
-    InputTypes, SaveBestModelCallbackVal,
+    InputTypes, SimilarityTypes, SaveBestModelCallbackVal,
     get_accuracy, get_concept_accuracy
 )
 from experiments.mnist.mnist_dataset import addition_dataset, create_single_digit_addition
@@ -20,7 +20,7 @@ RULE_EMB     = 1000
 N_RULES      = 20
 LR           = 0.0001
 BATCH_SIZE   = 512
-MAX_EPOCHS   = 100
+MAX_EPOCHS   = 140
 VAL_SPLIT    = 0.1
 SEED         = 42
 
@@ -68,6 +68,8 @@ def main():
         rule_module=ProbRDCat,
         lr=LR,
         selector_input=InputTypes.embedding,
+        selector_similarity=SimilarityTypes.euclidean, #Kies tussen cosine, dotproduct, euclidean
+        temperature=0.1,
         reset_selector=True,
         reset_selector_every_n_epochs=40,
         w_c=1, w_y=1, w_yF=1,

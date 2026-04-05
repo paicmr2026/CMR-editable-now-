@@ -5,10 +5,10 @@ from torch.utils.data import TensorDataset, DataLoader
 import lightning.pytorch as pl
 
 # 1. De "ModuleNotFoundError" fix (mocht je checkpoint oude paden bevatten)
-import model_simmilarity
-sys.modules['experiments.mnist.model_simmilarity_only'] = model_simmilarity
+import model_similarity
+sys.modules['experiments.mnist.model_simmilarity_only'] = model_similarity
 
-from model_simmilarity import (
+from model_similarity import (
     MNISTModel, MNISTEncoder, ProbRDCat,
     InputTypes, get_accuracy
 )
