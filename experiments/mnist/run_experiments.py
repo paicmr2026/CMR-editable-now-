@@ -1,27 +1,34 @@
-from experiments.mnist.local_experiments import MNISTTest
-import argparse
+import gc
+import torch
+from local_experiments import TestCMR
 
-
+"""
 def main():
     parser = argparse.ArgumentParser(description='')
     parser.add_argument('number', type=int, help='')
     args = parser.parse_args()
 
+    
+
     if args.number == 1:
-        MNISTTest().mnist_cmr()
+        pass
     elif args.number == 2:
-        MNISTTest().mnist_competitors()
+        pass
     elif args.number == 3:
-        MNISTTest().mnist_rule_interventions()
+        pass
     elif args.number == 4:
-        MNISTTest().mnist_cmr_incomplete_concept_set()
+        pass
     elif args.number == 5:
-        MNISTTest().mnist_comps_incomplete_concept_set()
+        pass
     elif args.number == 6:
-        MNISTTest().mnist_interventions()
+        pass
+"""
 
 
 if __name__ == '__main__':
-    main()
 
+    gc.collect()
+    torch.cuda.empty_cache()
 
+    TestCMR().train_extended_cmr_mnist()
+    TestCMR().test_rule_selector_rule_switch()
