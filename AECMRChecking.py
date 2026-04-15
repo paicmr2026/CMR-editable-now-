@@ -24,6 +24,7 @@ BATCH_SIZE   = 512
 MAX_EPOCHS   = 500
 VAL_SPLIT    = 0.1
 SEED         = 42
+VERBOSE = False
 
 def c_idx_to_name(c_idx, num_digits, digit_limit):
     d = c_idx // digit_limit
@@ -55,7 +56,7 @@ def main():
 
     #torch.serialization.add_safe_globals([MNISTModel, MNISTEncoder, AECat, nn.Sequential, nn.Linear, nn.ReLU, nn.LeakyReLU])
 
-    checkpoint_path = './results/mnist_base/CMR/best-v3.ckpt'
+    checkpoint_path = './results/mnist_base/CMR/best.ckpt'
 
     model = MNISTModel.load_from_checkpoint(
         checkpoint_path,
@@ -94,13 +95,13 @@ def main():
     n_tasks, n_rules, n_concepts, _ = rules.shape 
     
     count = 0
-    
-    print(model.rule_module.rules.weight.shape)
+
 
     for t in range(n_tasks):
-        print(f"\n" + "="*50)
-        print(f" TASK {t}")
-        print("="*50)
+        if VERBOSE:
+            print(f"\n" + "="*50)
+            print(f" TASK {t}")
+            print("="*50)
         
     
 
@@ -111,17 +112,87 @@ def main():
             
             # Check if they are identical to highlight errors
             is_correct = torch.equal(orig_rule, recon_rule)
+            
+            info = "" if VERBOSE else f" TASK {t} - "
             status = "V MATCH" if is_correct else "X MISMATCH"
             count += 0 if is_correct else 1
             
-            print(f"\n  [Rule {r}] - {status}")
+            if VERBOSE or not is_correct:
+                print(info + f"\n  [Rule {r}] - {status}")
             if not is_correct:
                 print(f"  ORIGINAL:\n  {orig_rule}")
                 print(f"  RECONSTRUCTED:\n  {recon_rule}")
 
-            
+    print(f"\n  Reconstruction Mismatch Count: {count} \n")
+
+
+    # task_to_rules, _ = model.aggregate_rules(test_loader, type='most_likely')
+    # for task in sorted(task_to_rules.keys()):
+    #     print(f"Task {task}: {task_to_rules[task]}")
+
+    model.make_editable()
+
     
-    print(f"\n  Mismatch Count: {count}")
+    new_rule = torch.zeros(20, 3)
+    new_rule[:, 0] = 1
+
+    model.change_rule(84, new_rule)
+
+    new_rules = model.get_all_rule_vars()
+
+
+    for t in range(n_tasks):
+        if VERBOSE:
+            print(f"\n" + "="*50)
+            print(f" TASK {t}")
+            print("="*50)
+        
+    
+
+        for r in range(n_rules):
+            # Extract the specific rule [Concepts, 3]
+            orig_rule = rules[t, r]
+            new_rule = new_rules[t, r]
+            
+            # Check if they are identical to highlight errors
+            is_correct = torch.equal(orig_rule, new_rule)
+            
+            info = "" if VERBOSE else f" TASK {t}"
+            status = "V MATCH" if is_correct else "X MISMATCH"
+            count += 0 if is_correct else 1
+            
+            if VERBOSE or not is_correct:
+                print(info + f"\n  [Rule {r}] - {status}")
+            if not is_correct:
+                print(f"  ORIGINAL:\n  {orig_rule}")
+                print(f"  EDITED:\n  {new_rule}")
+
+    print(f"\n  Pre-Post Edit Mismatch Count: {count}")
+
+    train_acc = get_accuracy(model, train_loader)
+    test_acc  = get_accuracy(model, test_loader)
+
+    print(f"\nOne-change Train Acc: {train_acc:.4f}")
+    print(f"One-change Test Acc:  {test_acc:.4f}")
+
+    #Check that eval also changes when adding dumb rules
+    new_rule = torch.zeros(20, 3)
+    new_rule[:, 0] = 1
+
+    model.change_rule(84, new_rule)
+
+    new_rules = model.get_all_rule_vars()
+    
+    for i in range(N_RULES * n_tasks):
+        model.change_rule(i, new_rule)
+
+    train_acc = get_accuracy(model, train_loader)
+    test_acc  = get_accuracy(model, test_loader)
+
+    print(f"\nBS Train Acc: {train_acc:.4f}")
+    print(f"BS Test Acc:  {test_acc:.4f}")
+
+
 
 if __name__ == "__main__":
     main()

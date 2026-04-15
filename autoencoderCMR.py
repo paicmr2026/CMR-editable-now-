@@ -347,6 +347,9 @@ class MNISTModel(pl.LightningModule):
 
         self.encoder = encoder
 
+        self.editable = False
+        self.saved_emb = None
+
         self.concept_embedder = ConceptEmbedding(in_features=self.embedding_size, n_concepts=self.n_concepts, emb_size=CONCEPT_EMB_SIZE)
         self.c_emb_combiner = torch.nn.Sequential(
             torch.nn.Linear(CONCEPT_EMB_SIZE * self.n_concepts, self.embedding_size),
@@ -368,6 +371,41 @@ class MNISTModel(pl.LightningModule):
 
         self.initialized = False
         self.initialize_rule_selector(selector_input)
+
+    def make_editable(self):
+        self.saved_emb = self.rule_module.rules.weight.detach().clone()      
+        
+        self.editable = True
+        
+        return self.editable
+    
+    def get_embeddings(self):
+        if self.editable:
+            return self.saved_emb
+        else:
+            return self.rule_module.rules.weight
+
+
+    def change_rule(self, index, orig_rule):
+        
+        orig_shape = orig_rule.shape
+        rule_emb = self.rule_module.rule_encoder(orig_rule.view(-1, self.n_concepts * 3))
+
+        recon_rule = self.rule_module.rule_decoder(rule_emb).view(orig_shape)
+        d_flat = recon_rule.view(-1, 3)  # tasks*rules*concepts, 3
+        max_indices_flat = torch.argmax(d_flat, dim=-1)
+        temp = torch.zeros_like(d_flat)
+        temp[torch.arange(d_flat.size(0)), max_indices_flat] = 1
+        recon_rule = temp.view(recon_rule.shape)
+
+        is_correct = torch.equal(orig_rule, recon_rule)
+
+        if not is_correct:
+            print("Did not add rule, rule pass through AE did not return same rule")
+            return False
+        else:
+            self.saved_emb[index] = rule_emb
+            return True
 
     def initialize_rule_selector(self, selector_input):
         if self.initialized:
@@ -414,7 +452,7 @@ class MNISTModel(pl.LightningModule):
         x = self.input_emb_proj(selector_input) # (batch, rule_emb_size)
         
         # Get and reshape rules
-        r = self.rule_module.rules.weight # (n_tasks * n_rules, rule_emb_size)
+        r = self.get_embeddings() # (n_tasks * n_rules, rule_emb_size)
         r = r.view(self.n_tasks, self.effective_n_rules, self.rule_emb_size)
         
         if self.selector_similarity == SimilarityTypes.cosine:
@@ -512,7 +550,7 @@ class MNISTModel(pl.LightningModule):
         """
         Returns all rule (pos pol, neg pol, irr) values (of both learned and manually added rules)
         """
-        r = self.rule_module.rules.weight
+        r = self.get_embeddings()    #self.rule_module.rules.weight
         r = r.view(self.n_tasks, self.n_rules, self.rule_emb_size)  # tasks, rules, emb
         rules = self.decode_rules(r)  # tasks, rules, concepts, 3
         # added rules
