@@ -29,6 +29,8 @@ experiments/mnist/results/mnist_adding_rules/*
 experiments/mnist/results/mnist_base/CMR/
 experiments/mnist/results/mnist_base/comps/
 
+results/
+
 # C extensions
 *.so
 
