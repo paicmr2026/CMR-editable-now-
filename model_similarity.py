@@ -92,6 +92,8 @@ class SimilarityTypes:
     cosine = 0
     dotproduct = 1
     euclidean = 2
+    bilinear = 3
+    attention = 4
 
 class SaveBestModelCallback(pl.Callback):
     def __init__(self):
@@ -269,7 +271,9 @@ class MNISTModel(pl.LightningModule):
                  lr=0.001,
                  selector_input=InputTypes.concepts,
                  selector_similarity=SimilarityTypes.cosine,
-                 temperature=1.0,
+                 hidden_layers=3,
+                 use_batch_norm=False, # added
+                 temperature=1.0, # added
                  rel_concept_counts=None, weight_concepts=False,
                  w_c=1, w_y=1, w_yF=1,
                  c_pred_in_logic=False,
@@ -315,6 +319,15 @@ class MNISTModel(pl.LightningModule):
         self.effective_n_rules = n_rules
         self.selector_input = selector_input
         self.selector_similarity=selector_similarity
+
+        # For bilinear and attention
+        self.input_emb_proj = None
+        self.bilinear_w = None
+        self.attn_v = None
+        self.attn_linear = None
+
+        self.hidden_layers = hidden_layers # added
+        self.use_batch_norm = use_batch_norm # added
         self.temperature=temperature
         self.rel_concept_counts = rel_concept_counts
         self.weight_concepts = weight_concepts
@@ -357,7 +370,7 @@ class MNISTModel(pl.LightningModule):
     def initialize_rule_selector(self, selector_input):
         if self.initialized:
             def initialize_weights(module):
-                if isinstance(module, torch.nn.Linear):
+                if isinstance(module, (torch.nn.Linear, torch.nn.BatchNorm1d)):
                     module.reset_parameters()
             self.input_emb_proj.apply(initialize_weights)
             return
@@ -370,25 +383,38 @@ class MNISTModel(pl.LightningModule):
         else:
             raise NotImplementedError
         
-
         self.selector_input_size = selector_input_size
         self.selector_input = selector_input
 
         if self.effective_n_rules > self.rule_mask.shape[1]:
             self.rule_mask = torch.cat([self.rule_mask, torch.ones(self.n_tasks, self.effective_n_rules - self.rule_mask.shape[1])], dim=-1)
 
-        # === For Similarity Selector ===
-        self.input_emb_proj = torch.nn.Sequential(
-            torch.nn.Linear(self.selector_input_size, self.embedding_size),
-            torch.nn.LeakyReLU(),
-            torch.nn.Linear(self.embedding_size, self.embedding_size),
-            torch.nn.LeakyReLU(),
-            torch.nn.Linear(self.embedding_size, self.embedding_size),
-            torch.nn.LeakyReLU(),
-            torch.nn.Linear(self.embedding_size, self.embedding_size),
-            torch.nn.LeakyReLU(),
-            torch.nn.Linear(self.embedding_size, self.rule_emb_size),
-        )
+        layers = []
+        current_dim = self.selector_input_size
+        
+        # Append each layer
+        for _ in range(self.hidden_layers):
+            layers.append(torch.nn.Linear(current_dim, self.embedding_size))
+            if self.use_batch_norm:
+                layers.append(torch.nn.BatchNorm1d(self.embedding_size))
+            layers.append(torch.nn.LeakyReLU())
+            current_dim = self.embedding_size
+
+        # Append output layer    
+        layers.append(torch.nn.Linear(current_dim, self.rule_emb_size))
+        
+        self.input_emb_proj = torch.nn.Sequential(*layers)
+
+        # === Initialize bilinear and attention NN ===
+        if self.selector_similarity == SimilarityTypes.bilinear:
+            self.bilinear_w = torch.nn.Parameter(torch.Tensor(self.rule_emb_size, self.rule_emb_size))
+            torch.nn.init.xavier_uniform_(self.bilinear_w)
+            
+        elif self.selector_similarity == SimilarityTypes.attention:
+            self.attn_linear_x = torch.nn.Linear(self.rule_emb_size, self.rule_emb_size)
+            self.attn_linear_r = torch.nn.Linear(self.rule_emb_size, self.rule_emb_size)
+            self.attn_v = torch.nn.Parameter(torch.Tensor(self.rule_emb_size))
+            torch.nn.init.normal_(self.attn_v)
 
     def compute_rule_logits(self, selector_input):
         """
@@ -420,6 +446,28 @@ class MNISTModel(pl.LightningModule):
             diff = x.unsqueeze(1).unsqueeze(2) - r.unsqueeze(0)
             logits = -torch.linalg.norm(diff, dim=-1)
 
+        elif self.selector_similarity == SimilarityTypes.bilinear:
+            # Formula: x^T * W * r
+            # Project x first: (batch, rule_emb_size) @ (rule_emb_size, rule_emb_size) -> (batch, rule_emb_size)
+            x_projected = torch.matmul(x, self.bilinear_w)
+            # Then dot product with r: (batch, rule_emb_size) @ (n_tasks, n_rules, rule_emb_size)
+            logits = torch.einsum('be,tne->btn', x_projected, r)
+
+        elif self.selector_similarity == SimilarityTypes.attention:
+            # Use broadcasting to avoid the massive 'cat' tensor
+            # x: (B, E) -> (B, 1, 1, E)
+            # r: (T, N, E) -> (1, T, N, E)
+            
+            # We apply the linear layer separately to x and r
+            # This is mathematically equivalent to W[x;r] if we split W into W1, W2
+            x_part = self.attn_linear_x(x).unsqueeze(1).unsqueeze(2)
+            r_part = self.attn_linear_r(r).unsqueeze(0)
+            
+            # Addition broadcasts (B, 1, 1, E) + (1, T, N, E) -> (B, T, N, E)
+            # This uses HALF the memory of the 'cat' version
+            energy = torch.tanh(x_part + r_part)
+            logits = torch.einsum('btne,e->btn', energy, self.attn_v)
+            
         else:
             raise ValueError(f"Unknown similarity type: {self.selector_similarity}")
 
@@ -792,6 +840,8 @@ class CMR(MNISTModel):
                  learning_rate=0.001,
                  selector_input=InputTypes.embedding,
                  selector_similarity=SimilarityTypes.cosine,
+                 hidden_layers=3,      # <--- Add this
+                 use_batch_norm=False,
                  temperature=0.1,
                  reset_selector=True, reset_selector_every_n_epochs=30,
                  rel_concept_counts=None, weight_concepts=False,
@@ -822,5 +872,7 @@ class CMR(MNISTModel):
             reset_selector=reset_selector, 
             reset_selector_every_n_epochs=reset_selector_every_n_epochs, 
             intervene=False, 
-            mutex=False
+            mutex=False,
+            hidden_layers=hidden_layers,      # <--- Pass this to super
+            use_batch_norm=use_batch_norm     # <--- Pass this to super
         )

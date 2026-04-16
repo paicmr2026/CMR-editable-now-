@@ -1,5 +1,8 @@
+import os
 import torch
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:32,expandable_segments:True"
 torch.cuda.empty_cache()
+
 import torch.nn.functional as F
 from torch.utils.data import TensorDataset, DataLoader
 import lightning.pytorch as pl
@@ -18,9 +21,9 @@ DIGIT_LIMIT  = 10
 EMB_SIZE     = 500
 RULE_EMB     = 1000
 N_RULES      = 20
-LR           = 0.0001
+LR           = 0.001
 BATCH_SIZE   = 512
-MAX_EPOCHS   = 140
+MAX_EPOCHS   = 50
 VAL_SPLIT    = 0.1
 SEED         = 42
 
@@ -68,10 +71,10 @@ def main():
         rule_module=ProbRDCat,
         lr=LR,
         selector_input=InputTypes.embedding,
-        selector_similarity=SimilarityTypes.euclidean, #Kies tussen cosine, dotproduct, euclidean
+        selector_similarity=SimilarityTypes.bilinear, # Kies tussen cosine, dotproduct, euclidean, attention, bilinear
         temperature=0.1,
         reset_selector=True,
-        reset_selector_every_n_epochs=40,
+        reset_selector_every_n_epochs=30,
         w_c=1, w_y=1, w_yF=1,
     )
 
