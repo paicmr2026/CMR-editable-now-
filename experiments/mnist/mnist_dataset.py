@@ -14,7 +14,7 @@ transform = transforms.Compose(
 def get_mnist_data(train: bool) -> MNIST:
     return torchvision.datasets.MNIST(root=data_path, train=train, download=True, transform=transform)
 
-def get_mnist_add_dataset(train, num_digits, digit_limit=10):
+def addition_dataset(train, num_digits, digit_limit=10):
     dataset = get_mnist_data(train)
     X, y = dataset.data, dataset.targets
 

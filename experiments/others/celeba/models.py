@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 
 from experiments.cebab.cbm_models import ConceptEmbedding, ConceptReasoningLayer
 from experiments.mnist.models_copy import SaveBestModelCallbackVal
-from utils.logic import ProductTNorm
+from experiments.mnist_prob.utils.logic import ProductTNorm
 
 EPS = 1e-8
 

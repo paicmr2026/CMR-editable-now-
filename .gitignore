@@ -24,10 +24,13 @@ experiments/cub/embeddings/*
 experiments/cub/results/celeba_base/*
 experiments/cub/results/cub_base/*
 
-experiments/mnist/results/comps_mnist_missing_digit_concepts/*
-experiments/mnist/results/mnist_adding_rules/*
-experiments/mnist/results/mnist_base/CMR/
-experiments/mnist/results/mnist_base/comps/
+experiments/mnist_original/results/comps_mnist_missing_digit_concepts/*
+experiments/mnist_original/results/mnist_adding_rules/*
+experiments/mnis_original/results/mnist_base/CMR/
+experiments/mnist_original/results/mnist_base/comps/
+
+experiments/mnist/data/*
+experiments/mnist/results/*
 
 # C extensions
 *.so
