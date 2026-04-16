@@ -195,7 +195,7 @@ class AECMRTest(unittest.TestCase):
             w_c=1, w_y=1, w_yF=1,
         )
 
-        checkpoint = torch.load("results/mnist_base/CMR/best.cpkt", map_location="cpu", weights_only=False)
+        checkpoint = torch.load("results/mnist_base/CMR/best.ckpt", map_location="cpu", weights_only=False)
         model.load_state_dict(checkpoint['state_dict'], strict=False)
 
         model.eval()
@@ -205,6 +205,8 @@ class AECMRTest(unittest.TestCase):
 
         results = []
 
+        scale = 8
+
         with torch.no_grad():
             for t_idx in range(n_tasks):
                 start = t_idx * N_RULES
@@ -212,65 +214,81 @@ class AECMRTest(unittest.TestCase):
 
                 original_rules = model.rule_module.rules.weight.data[start:end].clone()
 
-                rule_idx = torch.randint(0, N_RULES, (1,)).item()
-
-                modification = 0.1 * torch.randn_like(original_rules[rule_idx])
-                model.rule_module.rules.weight.data[start + rule_idx] += modification
-
-                modified_acc = get_accuracy(model, test_loader)
-
-                diff = baseline_acc - modified_acc
-
-                print(f"Task {t_idx}, Modified Rule {rule_idx}")
-                print(f"Modified Accuracy: {modified_acc:.4f}")
-                print(f"Accuracy Drop: {diff:.4f}")
-
-                """
-                # hoeveel predictions zijn veranderd? (optioneel?)
-                changed_predictions = 0
-                total = 0
-
+                all_p_s = []
                 for batch in test_loader:
-                    x_batch, c_batch, y_batch = batch
-                    out_before = model((x_batch, c_batch, y_batch))
+                    _, _, _, _, p_s, _, _ = model(batch)
+                    all_p_s.append(p_s[:, t_idx, :])
 
-                    model.rule_module.rules.weight.data[start:end] = original_rules
-                    out_baseline = model((x_batch, c_batch, y_batch))
+                avg_usage = torch.cat(all_p_s, dim=0).mean(dim=0)  # (rule,)
 
+                rule_idx_argmax = avg_usage.argmax().item()
+
+                probs = avg_usage / avg_usage.sum()
+                rule_idx_sampled = torch.multinomial(probs, 1).item()
+
+                for strategy_name, rule_idx in [("argmax", rule_idx_argmax), ("sampled", rule_idx_sampled)]:
+                    #modification = 0.1 * torch.randn_like(original_rules[rule_idx])
+                    modification = scale * torch.randn_like(original_rules[rule_idx])
                     model.rule_module.rules.weight.data[start + rule_idx] += modification
+                    #model.rule_module.rules.weight.data[start + rule_idx] = 0
 
-                    pred_before = out_before.argmax(dim=1)
-                    pred_after  = out_baseline.argmax(dim=1)
+                    modified_acc = get_accuracy(model, test_loader)
+                    diff = baseline_acc - modified_acc
 
-                    changed_predictions += (pred_before != pred_after).sum().item()
-                    total += pred_before.size(0)
+                    print(f"Task {t_idx}, Strategy {strategy_name}, Rule {rule_idx}")
+                    print(f"Modified Accuracy: {modified_acc:.4f}")
+                    print(f"Accuracy Drop: {diff:.4f}")
+                
+                    # hoeveel predictions zijn veranderd? (optioneel?)
+                    changed_predictions = 0
+                    total = 0
 
-                change_ratio = changed_predictions / total
-                print(f"Prediction Change Ratio: {change_ratio:.4f}")
+                    for batch in test_loader:
+                        x_batch, c_batch, y_batch = batch
+                        #out_before = model((x_batch, c_batch, y_batch))
+                        _, _, p_y_mod, _, p_s_mod, _, _ = model((x_batch, c_batch, y_batch))
 
-                results.append({
-                    "task": t_idx,
-                    "rule_idx": rule_idx,
-                    "baseline_acc": baseline_acc,
-                    "modified_acc": modified_acc,
-                    "accuracy_drop": diff,
-                    "prediction_change_ratio": change_ratio
-                })
-                """
-                model.rule_module.rules.weight.data[start:end] = original_rules
+                        model.rule_module.rules.weight.data[start:end] = original_rules
+                        #out_baseline = model((x_batch, c_batch, y_batch))
+                        _, _, p_y_base, _, p_s_base, _, _ = model((x_batch, c_batch, y_batch))
 
-                results.append({
-                    "task": t_idx,
-                    "rule_idx": rule_idx,
-                    "baseline_acc": baseline_acc,
-                    "modified_acc": modified_acc,
-                    "accuracy_drop": diff,
-                })
+                        model.rule_module.rules.weight.data[start + rule_idx] += modification
+
+                        y_mod  = torch.einsum("btr,btr->bt", p_s_mod, p_y_mod)
+                        y_base = torch.einsum("btr,btr->bt", p_s_base, p_y_base)
+
+                        pred_mod  = (y_mod > 0.5)
+                        pred_base = (y_base > 0.5)
+
+                        changed_predictions += (pred_mod != pred_base).sum().item()
+                        total += pred_base.size(0)
+
+                    change_ratio = changed_predictions / total
+                    print(f"Prediction Change Ratio: {change_ratio:.4f}")
+
+                    results.append({
+                        "task": t_idx,
+                        "rule_idx": rule_idx,
+                        "baseline_acc": baseline_acc,
+                        "modified_acc": modified_acc,
+                        "accuracy_drop": diff,
+                        "prediction_change_ratio": change_ratio
+                    })
+                    
+                    model.rule_module.rules.weight.data[start:end] = original_rules
+
+                    results.append({
+                        "task": t_idx,
+                        "rule_idx": rule_idx,
+                        "baseline_acc": baseline_acc,
+                        "modified_acc": modified_acc,
+                        "accuracy_drop": diff,
+                    })
 
         os.makedirs("results/rule_modification/", exist_ok=True)
-        pd.DataFrame(results).to_csv("results/rule_modification/results.csv", index=False)
+        pd.DataFrame(results).to_csv(f"results/rule_modification/results_scale_{scale}.csv", index=False)
 
-        print("Results saved to results/rule_modification/results.csv")
+        print(f"Results saved to results/rule_modification/results_scale_{scale}.csv")
 
         del model, train_loader, test_loader
         gc.collect()
@@ -302,7 +320,7 @@ class AECMRTest(unittest.TestCase):
             w_c=1, w_y=1, w_yF=1,
         )
 
-        checkpoint = torch.load("results/mnist_base/CMR/best.cpkt", map_location="cpu", weights_only=False)
+        checkpoint = torch.load("results/mnist_base/CMR/best.ckpt", map_location="cpu", weights_only=False)
         model.load_state_dict(checkpoint['state_dict'], strict=False)
 
         model.eval()
@@ -319,63 +337,78 @@ class AECMRTest(unittest.TestCase):
 
                 original_rules = model.rule_module.rules.weight.data[start:end].clone()
 
-                rule_idx = torch.randint(0, N_RULES, (1,)).item()
-
-                print(f"Task {t_idx}, Deleting Rule {rule_idx}")
-
-                model.rule_module.rules.weight.data[start + rule_idx] = 0.0
-
-                deleted_acc = get_accuracy(model, test_loader)
-                acc_drop = baseline_acc - deleted_acc
-
-                print(f"Accuracy after deletion: {deleted_acc:.4f}")
-                print(f"Accuracy drop: {acc_drop:.4f}")
-
-                """
-                changed_predictions = 0
-                total = 0
-
-                new_preds = []
-
+                all_p_s = []
                 for batch in test_loader:
-                    x_batch, c_batch, y_batch = batch
-                    out = model((x_batch, c_batch, y_batch))
-                    new_preds.append(out.argmax(dim=1))
+                    _, _, _, _, p_s, _, _ = model(batch)
+                    all_p_s.append(p_s[:, t_idx, :])
 
-                new_preds = torch.cat(new_preds)
+                avg_usage = torch.cat(all_p_s, dim=0).mean(dim=0)  # (rule,)
 
-                changed = (baseline_preds != new_preds)
-                changed_predictions = changed.sum().item()
-                total = len(baseline_preds)
+                rule_idx_argmax = avg_usage.argmax().item()
 
-                change_ratio = changed_predictions / total
+                probs = avg_usage / avg_usage.sum()
+                rule_idx_sampled = torch.multinomial(probs, 1).item()
 
-                print(f"Prediction Change Ratio: {change_ratio:.4f}")
+                for strategy_name, rule_idx in [("argmax", rule_idx_argmax), ("sampled", rule_idx_sampled)]:
+                    model.rule_module.rules.weight.data[start + rule_idx] = 0.0
 
-                results.append({
-                    "task": t_idx,
-                    "rule_idx": rule_idx,
-                    "baseline_acc": baseline_acc,
-                    "deleted_acc": deleted_acc,
-                    "accuracy_drop": acc_drop,
-                    "prediction_change_ratio": change_ratio
-                })
-                """
+                    modified_acc = get_accuracy(model, test_loader)
+                    diff = baseline_acc - modified_acc
 
-                results.append({
-                    "task": t_idx,
-                    "rule_idx": rule_idx,
-                    "baseline_acc": baseline_acc,
-                    "deleted_acc": deleted_acc,
-                    "accuracy_drop": acc_drop,
-                })
+                    print(f"Task {t_idx}, Strategy {strategy_name}, Rule {rule_idx}")
+                    print(f"Modified Accuracy: {modified_acc:.4f}")
+                    print(f"Accuracy Drop: {diff:.4f}")
+                
+                    # hoeveel predictions zijn veranderd? (optioneel?)
+                    changed_predictions = 0
+                    total = 0
 
-                model.rule_module.rules.weight.data[start:end] = original_rules
+                    for batch in test_loader:
+                        x_batch, c_batch, y_batch = batch
+                        #out_before = model((x_batch, c_batch, y_batch))
+                        _, _, p_y_mod, _, p_s_mod, _, _ = model((x_batch, c_batch, y_batch))
+
+                        model.rule_module.rules.weight.data[start:end] = original_rules
+                        #out_baseline = model((x_batch, c_batch, y_batch))
+                        _, _, p_y_base, _, p_s_base, _, _ = model((x_batch, c_batch, y_batch))
+
+                        model.rule_module.rules.weight.data[start + rule_idx] = 0.0
+
+                        y_mod  = torch.einsum("btr,btr->bt", p_s_mod, p_y_mod)
+                        y_base = torch.einsum("btr,btr->bt", p_s_base, p_y_base)
+
+                        pred_mod  = (y_mod > 0.5)
+                        pred_base = (y_base > 0.5)
+
+                        changed_predictions += (pred_mod != pred_base).sum().item()
+                        total += pred_base.size(0)
+
+                    change_ratio = changed_predictions / total
+                    print(f"Prediction Change Ratio: {change_ratio:.4f}")
+
+                    results.append({
+                        "task": t_idx,
+                        "rule_idx": rule_idx,
+                        "baseline_acc": baseline_acc,
+                        "modified_acc": modified_acc,
+                        "accuracy_drop": diff,
+                        "prediction_change_ratio": change_ratio
+                    })
+                    
+                    model.rule_module.rules.weight.data[start:end] = original_rules
+
+                    results.append({
+                        "task": t_idx,
+                        "rule_idx": rule_idx,
+                        "baseline_acc": baseline_acc,
+                        "modified_acc": modified_acc,
+                        "accuracy_drop": diff,
+                    })
 
         os.makedirs("results/rule_deletion/", exist_ok=True)
-        pd.DataFrame(results).to_csv("results/rule_deletion/results.csv", index=False)
+        pd.DataFrame(results).to_csv(f"results/rule_deletion/results.csv", index=False)
 
-        print("Results saved to results/rule_deletion/results.csv")
+        print(f"Results saved to results/rule_deletion/results.csv")
 
         del model, train_loader, test_loader
         gc.collect()
@@ -407,7 +440,7 @@ class AECMRTest(unittest.TestCase):
             w_c=1, w_y=1, w_yF=1,
         )
 
-        checkpoint = torch.load("results/mnist_base/CMR/best.cpkt", map_location="cpu", weights_only=False)
+        checkpoint = torch.load("results/mnist_base/CMR/best.ckpt", map_location="cpu", weights_only=False)
         model.load_state_dict(checkpoint['state_dict'], strict=False)
 
         model.eval()
@@ -416,6 +449,8 @@ class AECMRTest(unittest.TestCase):
         print(f"Baseline Accuracy: {baseline_acc:.4f}")
 
         results = []
+
+        scale = 12
 
         with torch.no_grad():
             for t_idx in range(n_tasks):
@@ -428,13 +463,19 @@ class AECMRTest(unittest.TestCase):
 
                 new_rule = original_rules[base_rule_idx].clone()
 
-                new_rule += 0.05 * torch.randn_like(new_rule)
+                new_rule += scale * torch.randn_like(new_rule)
 
-                replace_idx = torch.randint(0, N_RULES, (1,)).item()
-                model.rule_module.rules.weight.data[start + replace_idx] = new_rule
+                insert_idx = torch.randint(0, N_RULES, (1,)).item()
+                modified_block = torch.cat([
+                    original_rules[:insert_idx],
+                    new_rule.unsqueeze(0),
+                    original_rules[insert_idx:-1]   # drop last to keep size fixed
+                ], dim=0)
+
+                model.rule_module.rules.weight.data[start:end] = modified_block
 
                 print(f"Task {t_idx}")
-                print(f"Base rule: {base_rule_idx} → inserted at {replace_idx}")
+                print(f"Base rule: {base_rule_idx} → inserted at {insert_idx}")
 
                 new_acc = get_accuracy(model, test_loader)
                 acc_diff = new_acc - baseline_acc
@@ -445,26 +486,30 @@ class AECMRTest(unittest.TestCase):
                 selected_count = 0
                 total = 0
 
+                all_p_s = []
+
                 for batch in test_loader:
                     x_batch, c_batch, y_batch = batch
 
-                    outputs = model((x_batch, c_batch, y_batch))
+                    _, _, _, _, log_p_s, _, _ = model((x_batch, c_batch, y_batch))
 
-                    if hasattr(model, "selector_scores"):
-                        scores = model.selector_scores
+                    p_s = torch.softmax(log_p_s, dim=-1)
 
-                        selected = scores.argmax(dim=1)
-                        selected_count += (selected == replace_idx).sum().item()
-                        total += selected.size(0)
+                    all_p_s.append(p_s[:, t_idx, :])
 
-                usage_ratio = selected_count / total if total > 0 else 0
+                all_p_s = torch.cat(all_p_s, dim=0)
+
+                usage_ratio = all_p_s[:, insert_idx].mean().item()
 
                 print(f"New Rule Usage Ratio: {usage_ratio:.4f}")
+
+                #entropy = -(all_p_s * torch.log(all_p_s + 1e-8)).sum(dim=-1).mean().item()
+                #print(f"Selector Entropy: {entropy:.4f}")
 
                 results.append({
                     "task": t_idx,
                     "base_rule": base_rule_idx,
-                    "inserted_rule_idx": replace_idx,
+                    "inserted_rule_idx": insert_idx,
                     "baseline_acc": baseline_acc,
                     "new_acc": new_acc,
                     "accuracy_change": acc_diff,
