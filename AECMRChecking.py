@@ -6,7 +6,7 @@ from torch.utils.data import TensorDataset, DataLoader
 import lightning.pytorch as pl
 from lightning.pytorch.callbacks import ModelCheckpoint
 
-from autoencoderCMR import (
+from experiments.mnist.autoencoderCMR import (
     MNISTModel, MNISTEncoder, AECat,
     InputTypes, SaveBestModelCallbackVal,
     get_accuracy, get_concept_accuracy

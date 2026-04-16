@@ -8,7 +8,7 @@ from torch.nn.functional import binary_cross_entropy
 import matplotlib.pyplot as plt
 
 from experiments.cebab.cbm_models import ConceptEmbedding, ConceptReasoningLayer
-from utils.logic import ProductTNorm
+from experiments.mnist.utils.logic import ProductTNorm
 
 from experiments.celeba.models import CEMDeep, CBMDeep, CBMLinear, CBMCommon, StandardDCR
 

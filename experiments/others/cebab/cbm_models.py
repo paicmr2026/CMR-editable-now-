@@ -7,7 +7,7 @@ from torch.nn import CrossEntropyLoss, BCELoss, ModuleList, BCEWithLogitsLoss
 import torch
 from collections import Counter
 
-from utils.logic import ProductTNorm, GodelTNorm
+from experiments.mnist.utils.logic import ProductTNorm, GodelTNorm
 
 def softselect(values, temperature, use_sigmoid = True):
     softmax_scores = torch.log_softmax(values, dim=1)

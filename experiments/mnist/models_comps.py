@@ -11,7 +11,7 @@ from experiments.cebab.cbm_models import ConceptEmbedding, ConceptReasoningLayer
 
 from experiments.celeba.models import CEMDeep, CBMDeep, CBMLinear, CBMCommon, StandardDCR
 
-from utils.logic import ProductTNorm
+from experiments.mnist.utils.logic import ProductTNorm
 
 
 class MNISTEncoderCopy(torch.nn.Module):
