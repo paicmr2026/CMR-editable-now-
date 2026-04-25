@@ -10,7 +10,7 @@ from collections import defaultdict
 from torch.nn.functional import binary_cross_entropy, cross_entropy
 import math
 import random
-from utils.logic import ConceptEmbedding
+from experiments.mnist.utils.logic import ConceptEmbedding
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 EPS = 1e-18
