@@ -28,6 +28,8 @@ experiments/mnist/results/comps_mnist_missing_digit_concepts/*
 experiments/mnist/results/mnist_adding_rules/*
 experiments/mnist/results/mnist_base/CMR/
 experiments/mnist/results/mnist_base/comps/
+experiments/mnist/data/
+experiments/mnist/results/data/
 
 results/
 

@@ -14,7 +14,7 @@ from xgboost import XGBClassifier
 from experiments.colormnist.models_comps import CBMDeep_CNN, DNN_CNN, CBMLinear_CNN, CEMDeep_CNN, StandardDCR_CNN
 from experiments.colormnist.dataset import CustomMNISTDataset
 from experiments.colormnist.models import MNISTEncoder
-from utils.logic import ProductTNorm
+from experiments.mnist.utils.logic import ProductTNorm
 from experiments.mnist.models_copy import MNISTModel as Model, ProbRDCat, get_accuracy, \
     get_concept_accuracy, SaveBestModelCallback, SaveBestModelCallbackVal
 from experiments.mnist.models_copy import InputTypes
