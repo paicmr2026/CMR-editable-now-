@@ -20,9 +20,9 @@ RULE_EMB     = 1000
 N_RULES      = 20
 LR           = 0.0001
 BATCH_SIZE   = 512
-MAX_EPOCHS   = 100
+MAX_EPOCHS   = 300
 VAL_SPLIT    = 0.1
-SEED         = 42
+SEED         = 10
 
 def c_idx_to_name(c_idx, num_digits, digit_limit):
     d = c_idx // digit_limit

@@ -74,6 +74,23 @@ def main():
     print(f"\nTrain Acc: {train_acc:.4f}")
     print(f"Test Acc:  {test_acc:.4f}")
 
+    test_loader  = DataLoader(TensorDataset(x_test,  c_test,  y_test),  batch_size=1)
+
+
+    print(f"\nBS Train Acc: {train_acc:.4f}")
+    
+    example_batch = next(iter(test_loader)) 
+
+    print(f"BS Test Acc:  {test_acc:.4f}")
+    
+    _, _, y_per_rule, c_pred, p_s, _, _ = model.forward(example_batch)
+    torch.set_printoptions(precision=3)
+
+    print(y_per_rule)
+
+
+    test_loader  = DataLoader(TensorDataset(x_test,  c_test,  y_test),  batch_size=BATCH_SIZE)
+
     
     rules = model.get_all_rule_vars()
     
@@ -189,8 +206,6 @@ def main():
     train_acc = get_accuracy(model, train_loader)
     test_acc  = get_accuracy(model, test_loader)
 
-    print(f"\nBS Train Acc: {train_acc:.4f}")
-    print(f"BS Test Acc:  {test_acc:.4f}")
 
 
 
