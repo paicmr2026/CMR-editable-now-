@@ -775,6 +775,8 @@ class CUBDataset(Dataset):
     def __len__(self):
         return len(self.data)
 
+    '''
+    old get item, aangepast want we hebben de images niet (ook niet nodig), maar we werken alleen met de concepten
     def __getitem__(self, idx):
         img_data = self.data[idx]
         img_path = img_data['img_path']
@@ -836,7 +838,22 @@ class CUBDataset(Dataset):
                 return img, class_label, torch.FloatTensor(attr_label)
         else:
             return img, class_label
+    '''
 
+    def __getitem__(self, index):
+        item = self.data[index]
+        
+        # 1. Convert attributes to Tensor
+        attr_label = torch.tensor(item['attribute_label'], dtype=torch.float32)
+        
+        # 2. Get class label and convert to ONE-HOT encoded Tensor
+        # CUB has 200 classes
+        class_idx = item['class_label']
+        class_label_one_hot = torch.zeros(200)
+        class_label_one_hot[class_idx] = 1.0
+
+        # 3. Return (attributes, attributes, one_hot_labels), alleen concepten, geen afbeeldingen
+        return attr_label, attr_label, class_label_one_hot
 
 class ImbalancedDatasetSampler(torch.utils.data.sampler.Sampler):
     """Samples elements randomly from a given list of indices for
