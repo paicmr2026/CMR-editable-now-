@@ -20,7 +20,7 @@ RULE_EMB     = 1000
 N_RULES      = 20
 LR           = 0.0001
 BATCH_SIZE   = 512
-MAX_EPOCHS   = 300
+MAX_EPOCHS   = 200
 VAL_SPLIT    = 0.1
 SEED         = 10
 

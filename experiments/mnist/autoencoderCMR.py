@@ -373,20 +373,30 @@ class MNISTModel(pl.LightningModule):
         self.initialize_rule_selector(selector_input)
 
     def make_editable(self):
-        self.saved_emb = self.rule_module.rules.weight.detach().clone()      
+        self.saved_emb = []
+        for i in range(self.n_tasks):
+            self.saved_emb.append(self.rule_module.rules.weight.detach().clone()[range(i*self.n_rules, (i+1)*self.n_rules)])
         
         self.editable = True
-        
         return self.editable
     
-    def get_embeddings(self):
-        if self.editable:
+    def get_embeddings(self, simple=False):
+        if simple:
             return self.saved_emb
+        if self.editable:
+            effective_n_rules = max(map(lambda m: m.shape[0], self.saved_emb))
+            embeddings = torch.empty((0, self.rule_emb_size)) 
+            for i in range(len(self.saved_emb)):
+                embeddings = torch.cat([embeddings, self.saved_emb[i].clone().detach()], dim=0)
+                while embeddings.shape[0] < effective_n_rules*i:
+                    embeddings = torch.cat([embeddings, embeddings[-1:]], dim=0)
+            return embeddings
         else:
             return self.rule_module.rules.weight
-
-
-    def change_rule(self, index, orig_rule):
+        
+    def add_rule(self, task, orig_rule):
+        if task >= self.n_tasks:
+            raise Exception("No such task")
         
         orig_shape = orig_rule.shape
         rule_emb = self.rule_module.rule_encoder(orig_rule.view(-1, self.n_concepts * 3))
@@ -404,7 +414,41 @@ class MNISTModel(pl.LightningModule):
             print("Did not add rule, rule pass through AE did not return same rule")
             return False
         else:
-            self.saved_emb[index] = rule_emb
+            self.saved_emb[task] = torch.cat([self.saved_emb[task], rule_emb], dim = 0)
+            return True, self.saved_emb[task].size()[0] - 1
+        
+    def delete_rule(self, task, index):
+        if task >= self.n_tasks:
+            raise Exception("No such task")
+        old_size = self.saved_emb[task].size()[0]
+        if index >= old_size:
+            raise Exception("Index to large")
+        self.saved_emb[task] = torch.cat([self.saved_emb[task][:index], self.saved_emb[task][index+1:]], dim = 0)
+        return self.saved_emb[task].size()[0] < old_size
+
+
+
+    def change_rule(self, task, index, orig_rule):
+        if task >= self.n_tasks:
+            raise Exception("No such task")
+        
+        orig_shape = orig_rule.shape
+        rule_emb = self.rule_module.rule_encoder(orig_rule.view(-1, self.n_concepts * 3))
+
+        recon_rule = self.rule_module.rule_decoder(rule_emb).view(orig_shape)
+        d_flat = recon_rule.view(-1, 3)  # tasks*rules*concepts, 3
+        max_indices_flat = torch.argmax(d_flat, dim=-1)
+        temp = torch.zeros_like(d_flat)
+        temp[torch.arange(d_flat.size(0)), max_indices_flat] = 1
+        recon_rule = temp.view(recon_rule.shape)
+
+        is_correct = torch.equal(orig_rule, recon_rule)
+
+        if not is_correct:
+            print("Did not change rule, rule pass through AE did not return same rule")
+            return False
+        else:
+            self.saved_emb[task][index] = rule_emb
             return True
 
     def initialize_rule_selector(self, selector_input):
@@ -453,7 +497,8 @@ class MNISTModel(pl.LightningModule):
         
         # Get and reshape rules
         r = self.get_embeddings() # (n_tasks * n_rules, rule_emb_size)
-        r = r.view(self.n_tasks, self.effective_n_rules, self.rule_emb_size)
+        effective_n_rules = r.shape[0] // self.n_tasks
+        r = r.view(self.n_tasks, effective_n_rules, self.rule_emb_size)
         
         if self.selector_similarity == SimilarityTypes.cosine:
             # Normalize both for Cosine Sim
@@ -551,7 +596,8 @@ class MNISTModel(pl.LightningModule):
         Returns all rule (pos pol, neg pol, irr) values (of both learned and manually added rules)
         """
         r = self.get_embeddings()    #self.rule_module.rules.weight
-        r = r.view(self.n_tasks, self.n_rules, self.rule_emb_size)  # tasks, rules, emb
+        effective_n_rules = r.shape[0] // self.n_tasks
+        r = r.view(self.n_tasks, effective_n_rules, self.rule_emb_size)  # tasks, rules, emb
         rules = self.decode_rules(r)  # tasks, rules, concepts, 3
         # added rules
         if len(self.added_rules) != 0:
@@ -676,13 +722,13 @@ class MNISTModel(pl.LightningModule):
         logprob_per_sample = torch.sum(temp, dim=-1)         # batch
         logprob_per_sample = logprob_per_sample + torch.sum(true_log_p_c, dim=-1)
 
-        # r = self.rule_module.rules.weight
+        r = self.rule_module.rules.weight
 
-        # logits = self.rule_module.rule_decoder(r)
+        logits = self.rule_module.rule_decoder(r)
 
-        # recon_r = self.rule_module.rule_encoder(logits)
+        recon_r = self.rule_module.rule_encoder(logits)
 
-        # ae_loss = torch.nn.functional.mse_loss(r, recon_r)
+        ae_loss = 10*torch.nn.functional.mse_loss(r, recon_r)
 
         #Generate some random rules
         random_rules = torch.eye(3)[torch.randint(0, 3, (128, self.n_concepts))].view(128, -1).to(self.device)
@@ -692,7 +738,7 @@ class MNISTModel(pl.LightningModule):
         reconstruction_gen = self.rule_module.rule_decoder(latent_gen)
 
         # Calculate loss for the generated rules
-        ae_loss = torch.nn.functional.cross_entropy(
+        ae_loss += torch.nn.functional.cross_entropy(
             reconstruction_gen.view(-1, 3), 
             torch.argmax(random_rules.view(-1, 3), dim=-1)
         )

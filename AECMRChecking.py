@@ -56,7 +56,7 @@ def main():
 
     #torch.serialization.add_safe_globals([MNISTModel, MNISTEncoder, AECat, nn.Sequential, nn.Linear, nn.ReLU, nn.LeakyReLU])
 
-    checkpoint_path = './results/mnist_base/CMR/best.ckpt'
+    checkpoint_path = './results/mnist_base/CMR/best-v10.ckpt'
 
     model = MNISTModel.load_from_checkpoint(
         checkpoint_path,
@@ -73,24 +73,6 @@ def main():
 
     print(f"\nTrain Acc: {train_acc:.4f}")
     print(f"Test Acc:  {test_acc:.4f}")
-
-    test_loader  = DataLoader(TensorDataset(x_test,  c_test,  y_test),  batch_size=1)
-
-
-    print(f"\nBS Train Acc: {train_acc:.4f}")
-    
-    example_batch = next(iter(test_loader)) 
-
-    print(f"BS Test Acc:  {test_acc:.4f}")
-    
-    _, _, y_per_rule, c_pred, p_s, _, _ = model.forward(example_batch)
-    torch.set_printoptions(precision=3)
-
-    print(y_per_rule)
-
-
-    test_loader  = DataLoader(TensorDataset(x_test,  c_test,  y_test),  batch_size=BATCH_SIZE)
-
     
     rules = model.get_all_rule_vars()
     
@@ -112,6 +94,7 @@ def main():
     n_tasks, n_rules, n_concepts, _ = rules.shape 
     
     count = 0
+
 
 
     for t in range(n_tasks):
@@ -148,12 +131,11 @@ def main():
     #     print(f"Task {task}: {task_to_rules[task]}")
 
     model.make_editable()
-
     
     new_rule = torch.zeros(20, 3)
     new_rule[:, 0] = 1
 
-    model.change_rule(84, new_rule)
+    model.change_rule(4, 4, new_rule)
 
     new_rules = model.get_all_rule_vars()
 
@@ -196,17 +178,62 @@ def main():
     new_rule = torch.zeros(20, 3)
     new_rule[:, 0] = 1
 
-    model.change_rule(84, new_rule)
-
-    new_rules = model.get_all_rule_vars()
-    
-    for i in range(N_RULES * n_tasks):
-        model.change_rule(i, new_rule)
+    for t in range(n_tasks):
+        for r in range(n_rules):
+            model.change_rule(t, r, new_rule)
 
     train_acc = get_accuracy(model, train_loader)
     test_acc  = get_accuracy(model, test_loader)
 
+    print(f"\nBS Train Acc: {train_acc:.4f}")
+    print(f"BS Test Acc:  {test_acc:.4f}")
+    
 
+    for t in range(n_tasks):
+        for r in range(n_rules):
+            model.delete_rule(t, n_rules-r-1)
+
+    for t in range(n_tasks):
+        for r in range(n_rules):
+            model.add_rule(t, rules[t, r])
+
+    train_acc = get_accuracy(model, train_loader)
+    test_acc  = get_accuracy(model, test_loader)
+
+    new_rules = model.get_all_rule_vars()
+
+    count = 0
+
+    for t in range(n_tasks):
+        if VERBOSE:
+            print(f"\n" + "="*50)
+            print(f" TASK {t}")
+            print("="*50)
+        
+    
+
+        for r in range(n_rules):
+            # Extract the specific rule [Concepts, 3]
+            orig_rule = rules[t, r]
+            new_rule = new_rules[t, r]
+            
+            # Check if they are identical to highlight errors
+            is_correct = torch.equal(orig_rule, new_rule)
+            
+            info = "" if VERBOSE else f" TASK {t}"
+            status = "V MATCH" if is_correct else "X MISMATCH"
+            count += 0 if is_correct else 1
+            
+            if VERBOSE or not is_correct:
+                print(info + f"\n  [Rule {r}] - {status}")
+            if not is_correct:
+                print(f"  ORIGINAL:\n  {orig_rule}")
+                print(f"  RE-ADDED:\n  {new_rule}")
+
+    print(f"\n  Pre-Post Re-add Mismatch Count: {count}")
+
+    print(f"\nDelete and re-add Train Acc: {train_acc:.4f}")
+    print(f"Delete and re-add Test Acc:  {test_acc:.4f}")
 
 
 if __name__ == "__main__":
