@@ -14,6 +14,8 @@ from experiments.mnist.autoencoderCMR import (
 from experiments.mnist.mnist_dataset import addition_dataset, create_single_digit_addition
 
 # ── Config ───────────────────────────────────────────
+checkpoint_path = './results/mnist_base/CMR/best.ckpt'
+
 NUM_DIGITS   = 2
 DIGIT_LIMIT  = 10
 EMB_SIZE     = 500
@@ -56,8 +58,6 @@ def main():
 
     #torch.serialization.add_safe_globals([MNISTModel, MNISTEncoder, AECat, nn.Sequential, nn.Linear, nn.ReLU, nn.LeakyReLU])
 
-    checkpoint_path = './results/mnist_base/CMR/best-v10.ckpt'
-
     model = MNISTModel.load_from_checkpoint(
         checkpoint_path,
         encoder=MNISTEncoder(emb_size=EMB_SIZE, cp_output=DIGIT_LIMIT, number_digits=NUM_DIGITS),
@@ -81,7 +81,7 @@ def main():
     rules_flat = rules.view(-1, model.n_concepts * 3)
 
     latent = model.rule_module.rule_encoder(rules_flat)
-    reconstructed_flat = model.rule_module.rule_decoder(latent)
+    reconstructed_flat = model.rule_module.decode_rules(latent)
 
     reconstructed_rules = reconstructed_flat.view(orig_shape)
 
@@ -185,6 +185,32 @@ def main():
     train_acc = get_accuracy(model, train_loader)
     test_acc  = get_accuracy(model, test_loader)
 
+    new_rules = model.get_all_rule_vars()
+
+    count = 0
+
+    for t in range(n_tasks):
+        if VERBOSE:
+            print(f"\n" + "="*50)
+            print(f" TASK {t}")
+            print("="*50)
+        
+    
+
+        for r in range(n_rules):
+            # Extract the specific rule [Concepts, 3]
+            orig_rule = rules[t, r]
+            new_rule = new_rules[t, r]
+            
+            # Check if they are identical to highlight errors
+            is_correct = torch.equal(orig_rule, new_rule)
+            
+            info = "" if VERBOSE else f" TASK {t}"
+            status = "V MATCH" if is_correct else "X MISMATCH"
+            count += 0 if is_correct else 1
+
+    print(f"\n  Pre-Post BS Mismatch Count: {count}")
+
     print(f"\nBS Train Acc: {train_acc:.4f}")
     print(f"BS Test Acc:  {test_acc:.4f}")
     
@@ -197,8 +223,7 @@ def main():
         for r in range(n_rules):
             model.add_rule(t, rules[t, r])
 
-    train_acc = get_accuracy(model, train_loader)
-    test_acc  = get_accuracy(model, test_loader)
+   
 
     new_rules = model.get_all_rule_vars()
 
@@ -232,8 +257,12 @@ def main():
 
     print(f"\n  Pre-Post Re-add Mismatch Count: {count}")
 
+    train_acc = get_accuracy(model, train_loader)
+    test_acc  = get_accuracy(model, test_loader)
+
     print(f"\nDelete and re-add Train Acc: {train_acc:.4f}")
     print(f"Delete and re-add Test Acc:  {test_acc:.4f}")
+
 
 
 if __name__ == "__main__":

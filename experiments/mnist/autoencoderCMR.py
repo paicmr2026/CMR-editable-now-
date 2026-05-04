@@ -724,18 +724,18 @@ class MNISTModel(pl.LightningModule):
 
         r = self.rule_module.rules.weight
 
-        logits = self.rule_module.rule_decoder(r)
+        logits = self.rule_module.decode_rules(r).view(-1, self.n_concepts * 3)
 
         recon_r = self.rule_module.rule_encoder(logits)
 
-        ae_loss = 10*torch.nn.functional.mse_loss(r, recon_r)
+        ae_loss = torch.nn.functional.mse_loss(r, recon_r)
 
         #Generate some random rules
         random_rules = torch.eye(3)[torch.randint(0, 3, (128, self.n_concepts))].view(128, -1).to(self.device)
 
         # Force the AE to handle these random rules... this way we learn rule behavior and not just the few rules we get
         latent_gen = self.rule_module.rule_encoder(random_rules)
-        reconstruction_gen = self.rule_module.rule_decoder(latent_gen)
+        reconstruction_gen = self.rule_module.decode_rules(latent_gen)
 
         # Calculate loss for the generated rules
         ae_loss += torch.nn.functional.cross_entropy(
@@ -815,7 +815,6 @@ class MNISTModel(pl.LightningModule):
         loss = sum(self.info["loss"]) / len(self.info["loss"])
         ae_loss = sum(self.info["ae_loss"]) / len(self.info["ae_loss"])
         print(" c: %f, c': %f, y: %f, entr: %f, loss: %f, ae_loss %f" % (c_acc, c_prime_acc, y_acc, entr, loss, ae_loss))
-
 
     def get_rules_sym(self, rule_vars, rule_idx=None, task_idx=None):
         def to_rule_sym(r_idx, t_idx, rule_vars):
