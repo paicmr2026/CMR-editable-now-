@@ -292,7 +292,9 @@ class MNISTModel(pl.LightningModule):
                  orig_rule_sym_to_name=None,
                  reset_selector=True, reset_selector_every_n_epochs=30,
                  intervene=False,
-                 mutex=False):
+                 mutex=False,
+                 w_rule_ae_loss = 1,
+                 w_embedding_ae_loss = 1,):
         """
         Args:
             encoder: Torch module with forward method that returns (c_probs, emb)
@@ -311,6 +313,8 @@ class MNISTModel(pl.LightningModule):
             weight_concepts: Whether to weigh the concept reconstruction loss based on relative concept counts
             w_c: Weight for the concept reconstruction loss (w.r.t. the task loss)
             orig_rule_sym_to_name: None if printing rules should show pos polarity and irrelevance, otherwise prints pos and neg polarity
+            w_rule_ae_loss: Weight of the "random rules -> encode -> decode" part of the autoencoder in the loss
+            w_embedding_ae_loss: Weight of the "learned embeddings -> decode -> encode" part of the autoencoder in the loss
         """
         super().__init__()
 
@@ -346,6 +350,9 @@ class MNISTModel(pl.LightningModule):
         self.intervene = intervene
 
         self.encoder = encoder
+
+        self.w_rule_ae_loss = w_rule_ae_loss
+        self.w_embedding_ae_loss = w_embedding_ae_loss
 
         self.editable = False
         self.saved_emb = None
@@ -728,7 +735,7 @@ class MNISTModel(pl.LightningModule):
 
         recon_r = self.rule_module.rule_encoder(logits)
 
-        ae_loss = torch.nn.functional.mse_loss(r, recon_r)
+        ae_loss = self.w_embedding_ae_loss*torch.nn.functional.mse_loss(r, recon_r)
 
         #Generate some random rules
         random_rules = torch.eye(3)[torch.randint(0, 3, (128, self.n_concepts))].view(128, -1).to(self.device)
@@ -738,7 +745,7 @@ class MNISTModel(pl.LightningModule):
         reconstruction_gen = self.rule_module.decode_rules(latent_gen)
 
         # Calculate loss for the generated rules
-        ae_loss += torch.nn.functional.cross_entropy(
+        ae_loss += self.w_rule_ae_loss*torch.nn.functional.cross_entropy(
             reconstruction_gen.view(-1, 3), 
             torch.argmax(random_rules.view(-1, 3), dim=-1)
         )
