@@ -27,7 +27,6 @@ def reasoning(logic, concepts, polarity, relevance):
     pospolarity = 0.999 * pospolarity
     negpolarity = 0.999 * negpolarity
     irrelevance = 0.999 * irrelevance
-    
     preds = irrelevance + (1-concepts)*negpolarity + concepts*pospolarity
     return torch.prod(preds, dim=-1)
 
@@ -387,16 +386,30 @@ class MNISTModel(pl.LightningModule):
         self.editable = True
         return self.editable
     
+    def get_effective_n_rules(self):
+        if self.editable:
+            return max(map(lambda m: m.shape[0], self.saved_emb))
+        else:
+            return self.effective_n_rules
+
     def get_embeddings(self, simple=False):
-        if simple:
+        if simple and self.editable:
             return self.saved_emb
         if self.editable:
             effective_n_rules = max(map(lambda m: m.shape[0], self.saved_emb))
-            embeddings = torch.empty((0, self.rule_emb_size)) 
+            # print(effective_n_rules)
+            embeddings = torch.empty((0, self.rule_emb_size))
             for i in range(len(self.saved_emb)):
                 embeddings = torch.cat([embeddings, self.saved_emb[i].clone().detach()], dim=0)
-                while embeddings.shape[0] < effective_n_rules*i:
+                # print("----------")
+                # print(embeddings)
+                # print(embeddings.shape[0])
+                while embeddings.shape[0] < effective_n_rules*(i+1):
                     embeddings = torch.cat([embeddings, embeddings[-1:]], dim=0)
+                    # print("----------")
+                    # print(embeddings)
+                embeddings.shape[0]
+                # print("\nNEXT TASK\n")
             return embeddings
         else:
             return self.rule_module.rules.weight
@@ -625,13 +638,15 @@ class MNISTModel(pl.LightningModule):
         # === decode rules ===
         r = self.get_all_rule_vars()
 
+        effective_n_rules = self.get_effective_n_rules()
+
         # === select rules ===
         selector_input = self.get_selector_input(batch_c, emb, c_embs, c_pred, batch_y)
         logits_s = self.compute_rule_logits(selector_input)#.view(-1, self.n_tasks, self.effective_n_rules) not needed?
         log_p_s = torch.log_softmax(logits_s, dim=-1)  # batch, task, rules
         p_s = torch.softmax(logits_s, dim=-1)
 
-        y_to_mask = torch.ones_like(batch_y).unsqueeze(2).repeat(1, 1, self.effective_n_rules)  # not used anymore
+        y_to_mask = torch.ones_like(batch_y).unsqueeze(2).repeat(1, 1, effective_n_rules)  # not used anymore
 
         entr = torch.sum(batch_y*torch.sum(-p_s * torch.log(p_s + EPS), dim=-1)) / batch_y.shape[0]  # for logging
 
@@ -641,7 +656,7 @@ class MNISTModel(pl.LightningModule):
         relevance = 1-irrelevance  # task, rule, concept
 
         c_intv = batch_c.clone()
-        batch_c = batch_c.unsqueeze(1).unsqueeze(1).repeat(1, self.n_tasks, self.effective_n_rules, 1)
+        batch_c = batch_c.unsqueeze(1).unsqueeze(1).repeat(1, self.n_tasks, effective_n_rules, 1)
         _pospolarity = pospolarity.unsqueeze(0).repeat(batch_size, 1, 1, 1)
         _relevance = relevance.unsqueeze(0).repeat(batch_size, 1, 1, 1)
 
@@ -652,7 +667,9 @@ class MNISTModel(pl.LightningModule):
             y_per_rule = self.rule_module.calc_y(batch_c, _pospolarity, _relevance)  # batch, task, rule, concept
             c_pred = c_intv
         else:  # use thresholded c_pred for y_pred
-            y_per_rule = self.rule_module.calc_y((c_pred.detach() > 0.5).float().unsqueeze(1).unsqueeze(1).repeat(1, self.n_tasks, self.effective_n_rules, 1), _pospolarity, _relevance)
+            c = (c_pred.detach() > 0.5).float().unsqueeze(1).unsqueeze(1).repeat(1, self.n_tasks, effective_n_rules, 1)
+            # print(c.shape)
+            y_per_rule = self.rule_module.calc_y(c, _pospolarity, _relevance)
 
         return log_p_s, p_c_rec, y_per_rule, c_pred, p_s, entr, y_to_mask
     

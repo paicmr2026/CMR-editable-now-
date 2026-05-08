@@ -263,6 +263,29 @@ def main():
     print(f"\nDelete and re-add Train Acc: {train_acc:.4f}")
     print(f"Delete and re-add Test Acc:  {test_acc:.4f}")
 
+    model.delete_rule(0,0)
+    model.delete_rule(0,0)
+    model.delete_rule(0,0)
+    model.delete_rule(0,0)
+
+    train_acc = get_accuracy(model, train_loader)
+    test_acc  = get_accuracy(model, test_loader)
+
+    print(f"\nFew deletes Train Acc: {train_acc:.4f}")
+    print(f"Few deletes Test Acc:  {test_acc:.4f}")
+
+    new_rule = torch.zeros(20, 3)
+    new_rule[:, 0] = 1
+    model.add_rule(1, new_rule)
+    model.add_rule(1, new_rule)
+
+    train_acc = get_accuracy(model, train_loader)
+    test_acc  = get_accuracy(model, test_loader)
+
+    print(f"\nFew adds Train Acc: {train_acc:.4f}")
+    print(f"Few adds Test Acc:  {test_acc:.4f}")
+
+
 
 
 if __name__ == "__main__":
