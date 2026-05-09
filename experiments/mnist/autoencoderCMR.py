@@ -748,6 +748,8 @@ class MNISTModel(pl.LightningModule):
 
         r = self.rule_module.rules.weight
 
+        # CHANGED
+        #with torch.no_grad():
         logits = self.rule_module.decode_rules(r).view(-1, self.n_concepts * 3)
 
         recon_r = self.rule_module.rule_encoder(logits)
@@ -767,7 +769,7 @@ class MNISTModel(pl.LightningModule):
             torch.argmax(random_rules.view(-1, 3), dim=-1)
         )
 
-        loss = torch.mean(-logprob_per_sample) + 0.01 * ae_loss  # 1
+        loss = torch.mean(-logprob_per_sample) + 0.1 * ae_loss  # 1
 
         # === information ===
         if self.skip_info:

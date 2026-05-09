@@ -14,7 +14,7 @@ from experiments.mnist.autoencoderCMR import (
 from experiments.mnist.mnist_dataset import addition_dataset, create_single_digit_addition
 
 # ── Config ───────────────────────────────────────────
-checkpoint_path = './results/mnist_base/CMR/best.ckpt'
+checkpoint_path = './results/mnist_base/CMR/best-v6.ckpt'
 
 NUM_DIGITS   = 2
 DIGIT_LIMIT  = 10
@@ -132,9 +132,8 @@ def main():
 
     model.make_editable()
     
-    new_rule = torch.zeros(20, 3)
-    new_rule[:, 0] = 1
-
+    new_rule = torch.eye(3)[torch.randint(0, 3, (1, 20))]
+    
     model.change_rule(4, 4, new_rule)
 
     new_rules = model.get_all_rule_vars()
@@ -175,12 +174,16 @@ def main():
     print(f"One-change Test Acc:  {test_acc:.4f}")
 
     #Check that eval also changes when adding dumb rules
-    new_rule = torch.zeros(20, 3)
-    new_rule[:, 0] = 1
-
+    # new_rule = torch.zeros(20, 3)
+    # new_rule[:, 0] = 1
+    count = 0
     for t in range(n_tasks):
         for r in range(n_rules):
-            model.change_rule(t, r, new_rule)
+            new_rule = torch.eye(3)[torch.randint(0, 3, (1, 20))]
+            if not model.change_rule(t, r, new_rule):
+                count += 1
+    
+    print(count)
 
     train_acc = get_accuracy(model, train_loader)
     test_acc  = get_accuracy(model, test_loader)

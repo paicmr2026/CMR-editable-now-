@@ -73,6 +73,8 @@ def main():
         reset_selector=True,
         reset_selector_every_n_epochs=40,
         w_c=1, w_y=1, w_yF=1,
+        w_embedding_ae_loss=0.5,
+        w_rule_ae_loss=4
     )
 
     # ── Training ──────────────────────────────────────────────────────────────
