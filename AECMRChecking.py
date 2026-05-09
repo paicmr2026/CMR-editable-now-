@@ -14,7 +14,7 @@ from experiments.mnist.autoencoderCMR import (
 from experiments.mnist.mnist_dataset import addition_dataset, create_single_digit_addition
 
 # ── Config ───────────────────────────────────────────
-checkpoint_path = './results/mnist_base/CMR/best-v6.ckpt'
+checkpoint_path = './results/mnist_base/CMR/best.ckpt'
 
 NUM_DIGITS   = 2
 DIGIT_LIMIT  = 10
@@ -102,8 +102,6 @@ def main():
             print(f"\n" + "="*50)
             print(f" TASK {t}")
             print("="*50)
-        
-    
 
         for r in range(n_rules):
             # Extract the specific rule [Concepts, 3]
@@ -119,7 +117,7 @@ def main():
             
             if VERBOSE or not is_correct:
                 print(info + f"\n  [Rule {r}] - {status}")
-            if not is_correct:
+            if VERBOSE and not is_correct:
                 print(f"  ORIGINAL:\n  {orig_rule}")
                 print(f"  RECONSTRUCTED:\n  {recon_rule}")
 
@@ -138,6 +136,7 @@ def main():
 
     new_rules = model.get_all_rule_vars()
 
+    count = 0
 
     for t in range(n_tasks):
         if VERBOSE:
@@ -161,7 +160,7 @@ def main():
             
             if VERBOSE or not is_correct:
                 print(info + f"\n  [Rule {r}] - {status}")
-            if not is_correct:
+            if VERBOSE and not is_correct:
                 print(f"  ORIGINAL:\n  {orig_rule}")
                 print(f"  EDITED:\n  {new_rule}")
 
@@ -217,14 +216,22 @@ def main():
     print(f"\nBS Train Acc: {train_acc:.4f}")
     print(f"BS Test Acc:  {test_acc:.4f}")
     
+    model.make_editable()
+
+    rules = model.get_all_rule_vars()
 
     for t in range(n_tasks):
         for r in range(n_rules):
             model.delete_rule(t, n_rules-r-1)
 
+
     for t in range(n_tasks):
         for r in range(n_rules):
-            model.add_rule(t, rules[t, r])
+            new_rule = rules[t,r]
+            max_indices_flat = torch.argmax(new_rule, dim=-1)
+            temp = torch.zeros_like(new_rule)
+            temp[torch.arange(new_rule.size(0)), max_indices_flat] = 1
+            model.add_rule(t, temp)
 
    
 
@@ -254,7 +261,7 @@ def main():
             
             if VERBOSE or not is_correct:
                 print(info + f"\n  [Rule {r}] - {status}")
-            if not is_correct:
+            if VERBOSE and not is_correct:
                 print(f"  ORIGINAL:\n  {orig_rule}")
                 print(f"  RE-ADDED:\n  {new_rule}")
 
