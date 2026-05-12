@@ -68,16 +68,19 @@ def main():
 
     # 5. Extract and Print
     print("\nExtracting learned rules...")
+    rules = []
     task_to_rules, _ = model.aggregate_rules(test_loader, type='most_likely')
 
     print("\n" + "="*50)
     print("LEARNED CONCEPT RULES (Sample)")
     print("="*50)
 
-    for task_idx in range(10): # Printing first 10 species
-        species_name = CLASS_NAMES[task_idx]
-        print(f"\n[{species_name}]:")
-        print(f"Rule: {task_to_rules[task_idx]}")
+    for task in task_to_rules:
+                    print('=== Task', CLASS_NAMES[task], "= True ", "===")
+                    for rule in task_to_rules[task]:
+                        print(rule, ":", task_to_rules[task][rule])
+                        rule_latex = rule.replace('&', '\land').replace('|', '\lor').replace('~', '\\neg ')
+                        rules.append([CLASS_NAMES[task], rule_latex, task_to_rules[task][rule]])
 
 if __name__ == '__main__':
     main()

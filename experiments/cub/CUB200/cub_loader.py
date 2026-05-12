@@ -870,7 +870,7 @@ class ImbalancedDatasetSampler(torch.utils.data.sampler.Sampler):
             if indices is None else indices
 
         # if num_samples is not provided,
-        # draw `len(indices)` samples in each iteration
+        # draw `len(indices)` samples in each iteratio
         self.num_samples = len(self.indices)
 
         # distribution of classes in the dataset

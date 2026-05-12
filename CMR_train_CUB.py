@@ -3,26 +3,29 @@ torch.cuda.empty_cache()
 import os
 import pandas as pd
 import lightning.pytorch as pl
+
 from torch.utils.data import DataLoader, TensorDataset
 from lightning.pytorch.callbacks import ModelCheckpoint
 
-from experiments.mnist.autoencoderCMR import (
-    MNISTModel, InputTypes, AECat, SaveBestModelCallbackVal, get_accuracy, get_concept_accuracy
+from sklearn.metrics import f1_score, roc_auc_score, classification_report, confusion_matrix
+from experiments.mnist.models_copy import (
+    MNISTModel, MNISTEncoder, \
+    InputTypes, SaveBestModelCallbackVal, ProbRDCat, get_accuracy, get_concept_accuracy
 )
 from experiments.cub.models import CUBEncoder
 from experiments.cub.CUB200.cub_loader import CONCEPT_SEMANTICS, CLASS_NAMES
 
 # --- CONFIGURATION FLAGS ---
 RETRAIN      = False
-CHECKPOINT_PATH = "./results/cub_base/CMR/best_cub_aecmr.ckpt"
+CHECKPOINT_PATH = "./results/cub_base/CMR/best_cub_cmr.ckpt"
 # ---------------------------
 
 EMB_SIZE     = 100   
 RULE_EMB     = 500   
 N_RULES      = 3     
 LR           = 0.001
-BATCH_SIZE   = 64
-MAX_EPOCHS   = 50
+BATCH_SIZE   = 100
+MAX_EPOCHS   = 250
 SEED         = 42
 
 def main():
@@ -52,10 +55,10 @@ def main():
         emb_size=EMB_SIZE,
         rule_emb_size=RULE_EMB,
         n_concepts=c_train.shape[1],
-        n_tasks=200,
+        n_tasks=y_train.shape[1],
         n_rules=N_RULES,
         concept_names=CONCEPT_SEMANTICS,
-        rule_module=AECat,
+        rule_module=ProbRDCat,
         lr=LR,
         w_c=1, 
         w_y=30, 
